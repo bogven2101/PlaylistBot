@@ -8,14 +8,27 @@ android {
 
     defaultConfig {
         applicationId 'ua.bogven.playlistbot'
-        minSdk 26
+        minSdk 21
         targetSdk 34
-        versionCode 1
-        versionName '1.0'
+        versionCode 3
+        versionName '1.2'
+    }
+
+    signingConfigs {
+        fixed {
+            storeFile file('playlistbot.keystore')
+            storePassword 'playlistbot'
+            keyAlias 'playlistbot'
+            keyPassword 'playlistbot'
+        }
     }
 
     buildTypes {
-        release { minifyEnabled false }
+        debug { signingConfig signingConfigs.fixed }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.fixed
+        }
     }
 
     compileOptions {
