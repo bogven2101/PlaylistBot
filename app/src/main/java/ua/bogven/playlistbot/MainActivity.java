@@ -53,9 +53,9 @@ public class MainActivity extends Activity {
     private static final String[] SOURCE_LABELS = {"Jamendo + Internet Archive", "Тільки Jamendo", "Тільки Internet Archive"};
     private static final String[] GENRE_LABELS = {"Будь-який", "Поп", "Рок", "Електронна", "Хіп-хоп / реп", "Інді", "Денс", "Чилаут", "Джаз", "Блюз", "Фолк", "Метал", "Панк", "Реггі", "Лаунж", "Ембієнт", "Класика", "Саундтрек"};
     private static final String[] GENRE_TAGS = {"", "pop", "rock", "electronic", "hiphop", "indie", "dance", "chillout", "jazz", "blues", "folk", "metal", "punk", "reggae", "lounge", "ambient", "classical", "soundtrack"};
-    private static final String[] LANG_LABELS = {"Будь-яка", "Українська", "Англійська", "Польська", "Німецька", "Французька", "Іспанська", "Італійська", "Без слів (інструментал)"};
-    private static final String[] LANG_JAMENDO = {"", "uk", "en", "pl", "de", "fr", "es", "it", "instrumental"};
-    private static final String[] LANG_IA = {"", "(ukr OR Ukrainian)", "(eng OR English)", "(pol OR Polish)", "(ger OR deu OR German)", "(fre OR fra OR French)", "(spa OR Spanish)", "(ita OR Italian)", ""};
+    private static final String[] LANG_LABELS = {"Будь-яка", "Українська", "Англійська", "Польська", "Німецька", "Французька", "Іспанська", "Італійська", "Російська", "Румунська", "Молдовська", "Без слів (інструментал)"};
+    private static final String[] LANG_JAMENDO = {"", "uk", "en", "pl", "de", "fr", "es", "it", "ru", "ro", "ro", "instrumental"};
+    private static final String[] LANG_IA = {"", "(ukr OR Ukrainian)", "(eng OR English)", "(pol OR Polish)", "(ger OR deu OR German)", "(fre OR fra OR French)", "(spa OR Spanish)", "(ita OR Italian)", "(rus OR Russian)", "(rum OR ron OR Romanian)", "(mol OR rum OR ron OR Moldavian OR Moldovan OR Romanian)", ""};
     private static final String[] ORDER_LABELS = {"Популярні зараз", "Найновіші"};
     private static final String[] COUNT_LABELS = {"10", "20", "30", "50", "100"};
 
