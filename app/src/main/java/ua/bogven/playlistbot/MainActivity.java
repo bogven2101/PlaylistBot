@@ -50,7 +50,8 @@ public class MainActivity extends Activity {
 
     private static final int REQ_TREE = 42;
 
-    private static final String[] SOURCE_LABELS = {"Jamendo + Internet Archive", "Тільки Jamendo", "Тільки Internet Archive"};
+    private static final String[] SOURCE_LABELS = {"Jamendo (потрібен ключ)", "Internet Archive", "Audius — сучасні незалежні виконавці", "ccMixter — ремікси та інді", "Openverse — пошук по відкритих каталогах"};
+    private static final String[] SOURCE_KEYS = {"s_jam", "s_ia", "s_aud", "s_ccm", "s_ov"};
     private static final String[] GENRE_LABELS = {"Будь-який", "Поп", "Рок", "Електронна", "Хіп-хоп / реп", "Інді", "Денс", "Чилаут", "Джаз", "Блюз", "Фолк", "Метал", "Панк", "Реггі", "Лаунж", "Ембієнт", "Класика", "Саундтрек"};
     private static final String[] GENRE_TAGS = {"", "pop", "rock", "electronic", "hiphop", "indie", "dance", "chillout", "jazz", "blues", "folk", "metal", "punk", "reggae", "lounge", "ambient", "classical", "soundtrack"};
     private static final String[] LANG_LABELS = {"Будь-яка", "Українська", "Англійська", "Польська", "Німецька", "Французька", "Іспанська", "Італійська", "Російська", "Румунська", "Молдовська", "Без слів (інструментал)"};
@@ -62,7 +63,8 @@ public class MainActivity extends Activity {
     private SharedPreferences prefs;
     private final ExecutorService exec = Executors.newSingleThreadExecutor();
 
-    private Spinner sourceSp, genreSp, langSp, orderSp, countSp;
+    private final CheckBox[] srcBoxes = new CheckBox[5];
+    private Spinner genreSp, langSp, orderSp, countSp;
     private EditText nameEdit;
     private CheckBox shuffleBox, modernBox;
     private Button searchBtn, folderBtn, downloadBtn;
@@ -147,8 +149,14 @@ public class MainActivity extends Activity {
         sub.setTextSize(14);
         col.addView(sub);
 
-        label(col, "Джерело");
-        sourceSp = spinner(col, SOURCE_LABELS, prefs.getInt("src", 0));
+        label(col, "Джерела музики");
+        for (int i = 0; i < SOURCE_LABELS.length; i++) {
+            CheckBox cb = new CheckBox(this);
+            cb.setText(SOURCE_LABELS[i]);
+            cb.setChecked(prefs.getBoolean(SOURCE_KEYS[i], true));
+            col.addView(cb);
+            srcBoxes[i] = cb;
+        }
         label(col, "Жанр");
         genreSp = spinner(col, GENRE_LABELS, prefs.getInt("genre", 0));
         label(col, "Мова пісень");
@@ -375,10 +383,30 @@ public class MainActivity extends Activity {
 
     private void startSearch() {
         if (busy) return;
-        final int src = sourceSp.getSelectedItemPosition();
+        final boolean[] on = new boolean[srcBoxes.length];
+        boolean any = false;
+        SharedPreferences.Editor ed = prefs.edit();
+        for (int i = 0; i < srcBoxes.length; i++) {
+            on[i] = srcBoxes[i].isChecked();
+            any |= on[i];
+            ed.putBoolean(SOURCE_KEYS[i], on[i]);
+        }
+        ed.apply();
+        if (!any) {
+            toast("Оберіть хоча б одне джерело");
+            return;
+        }
         final String key = prefs.getString("jamendo_key", "").trim();
-        if (src != 2 && key.isEmpty()) {
-            showKeyDialog(true);
+        if (on[0] && key.isEmpty()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Немає ключа Jamendo")
+                    .setMessage("Jamendo працює лише з безкоштовним ключем. Ввести ключ зараз чи шукати без Jamendo?")
+                    .setPositiveButton("Ввести ключ", (d, w) -> showKeyDialog(true))
+                    .setNegativeButton("Без Jamendo", (d, w) -> {
+                        srcBoxes[0].setChecked(false);
+                        startSearch();
+                    })
+                    .show();
             return;
         }
         final int gi = genreSp.getSelectedItemPosition();
@@ -387,8 +415,10 @@ public class MainActivity extends Activity {
         final int count = Integer.parseInt(COUNT_LABELS[countSp.getSelectedItemPosition()]);
         final boolean shuffle = shuffleBox.isChecked();
         final boolean modern = modernBox.isChecked();
+        final boolean instrumental = "instrumental".equals(LANG_JAMENDO[li]);
+        final boolean langFilter = li != 0 && !instrumental;
 
-        prefs.edit().putInt("src", src).putInt("genre", gi).putInt("lang", li)
+        prefs.edit().putInt("genre", gi).putInt("lang", li)
                 .putInt("order", orderSp.getSelectedItemPosition())
                 .putInt("count", countSp.getSelectedItemPosition())
                 .putBoolean("shuffle", shuffle).putBoolean("modern", modern).apply();
@@ -401,46 +431,98 @@ public class MainActivity extends Activity {
         }
         playlistName = safeName(n);
 
+        int active = 0;
+        for (boolean b : on) if (b) active++;
+        final int share = Math.max(3, count / active + 3);
+
         setBusy(true);
         searchBtn.setText("⏳ Шукаю…");
         exec.execute(() -> {
-            List<Track> jam = new ArrayList<>();
-            List<Track> ia = new ArrayList<>();
-            StringBuilder errors = new StringBuilder();
             String genre = GENRE_TAGS[gi];
+            List<List<Track>> lists = new ArrayList<>();
+            StringBuilder errors = new StringBuilder();
+            StringBuilder skipped = new StringBuilder();
 
-            if (src == 0 || src == 1) {
+            if (on[0]) {
+                ui("⏳ Jamendo…");
                 try {
-                    runOnUiThread(() -> searchBtn.setText("⏳ Шукаю на Jamendo…"));
-                    jam = MusicSources.jamendo(key, genre, LANG_JAMENDO[li], newest, modern,
-                            shuffle ? count * 3 : count + 10);
-                    if (shuffle) Collections.shuffle(jam);
+                    List<Track> l = MusicSources.jamendo(key, genre, LANG_JAMENDO[li], newest, modern,
+                            shuffle ? share * 3 : share + 5);
+                    if (shuffle) Collections.shuffle(l);
+                    lists.add(l);
                 } catch (Exception e) {
                     errors.append("Jamendo: ").append(e.getMessage()).append('\n');
                 }
             }
-            if (src == 0 || src == 2) {
-                int need = src == 0 ? Math.max(3, count / 2 + 2) : count;
-                if (src == 0 && jam.size() < count) need = Math.max(need, count - jam.size() + 2);
+            if (on[1]) {
                 try {
-                    ia = MusicSources.internetArchive(genre, LANG_IA[li], newest, modern, need, shuffle,
-                            msg -> runOnUiThread(() -> searchBtn.setText("⏳ " + msg)));
+                    lists.add(MusicSources.internetArchive(genre, LANG_IA[li], newest, modern, share, shuffle,
+                            this::ui));
                 } catch (Exception e) {
                     errors.append("Internet Archive: ").append(e.getMessage()).append('\n');
                 }
+            }
+            if (on[2]) {
+                if (langFilter) skipped.append("Audius ");
+                else {
+                    ui("⏳ Audius…");
+                    try {
+                        List<Track> l = MusicSources.audius(genre, newest, shuffle ? share * 3 : share);
+                        if (shuffle) Collections.shuffle(l);
+                        lists.add(l);
+                    } catch (Exception e) {
+                        errors.append("Audius: ").append(e.getMessage()).append('\n');
+                    }
+                }
+            }
+            if (on[3]) {
+                if (langFilter) skipped.append("ccMixter ");
+                else {
+                    ui("⏳ ccMixter…");
+                    try {
+                        List<Track> l = MusicSources.ccMixter(genre, instrumental, newest, shuffle ? share * 3 : share);
+                        if (shuffle) Collections.shuffle(l);
+                        lists.add(l);
+                    } catch (Exception e) {
+                        errors.append("ccMixter: ").append(e.getMessage()).append('\n');
+                    }
+                }
+            }
+            if (on[4]) {
+                if (langFilter) skipped.append("Openverse ");
+                else {
+                    ui("⏳ Openverse…");
+                    try {
+                        List<Track> l = MusicSources.openverse(genre, shuffle ? share * 2 : share);
+                        if (shuffle) Collections.shuffle(l);
+                        lists.add(l);
+                    } catch (Exception e) {
+                        errors.append("Openverse: ").append(e.getMessage()).append('\n');
+                    }
+                }
+            }
+            if (skipped.length() > 0) {
+                errors.append("Не мають фільтра мови, тому пропущені: ").append(skipped.toString().trim()).append('\n');
             }
 
             // Змішуємо джерела по черзі, прибираємо дублікати
             List<Track> merged = new ArrayList<>();
             Set<String> seen = new HashSet<>();
-            int a = 0, b = 0;
-            while (merged.size() < count && (a < jam.size() || b < ia.size())) {
-                Track t = null;
-                boolean takeJam = (merged.size() % 2 == 0) ? a < jam.size() : b >= ia.size();
-                if (takeJam && a < jam.size()) t = jam.get(a++);
-                else if (b < ia.size()) t = ia.get(b++);
-                else if (a < jam.size()) t = jam.get(a++);
-                if (t != null && seen.add(t.key())) merged.add(t);
+            int[] pos = new int[lists.size()];
+            boolean progressMade = true;
+            while (merged.size() < count && progressMade) {
+                progressMade = false;
+                for (int k = 0; k < lists.size() && merged.size() < count; k++) {
+                    List<Track> l = lists.get(k);
+                    while (pos[k] < l.size()) {
+                        Track t = l.get(pos[k]++);
+                        progressMade = true;
+                        if (seen.add(t.key())) {
+                            merged.add(t);
+                            break;
+                        }
+                    }
+                }
             }
 
             final String err = errors.toString().trim();
@@ -460,12 +542,16 @@ public class MainActivity extends Activity {
                 tracks.addAll(merged);
                 adapter.notifyDataSetChanged();
                 list.setSelection(0);
-                statusText.setText(err.isEmpty() ? "" : "⚠ " + err);
+                statusText.setText(err.isEmpty() ? "" : "ℹ " + err);
                 progress.setVisibility(View.GONE);
                 updateInfo();
                 showResults();
             });
         });
+    }
+
+    private void ui(String msg) {
+        runOnUiThread(() -> searchBtn.setText(msg.startsWith("⏳") ? msg : "⏳ " + msg));
     }
 
     // ================================================================ Прослуховування

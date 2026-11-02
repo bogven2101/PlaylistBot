@@ -240,6 +240,166 @@ public class MusicSources {
         return out;
     }
 
+    // ---------------------------------------------------------------- Audius
+
+    static final String AUDIUS = "https://api.audius.co/v1";
+    static final String APP = "app_name=PlaylistBot";
+
+    static String audiusGenre(String tag) {
+        switch (tag) {
+            case "pop": return "Pop";
+            case "rock": return "Rock";
+            case "electronic": return "Electronic";
+            case "hiphop": return "Hip-Hop/Rap";
+            case "indie": return "Alternative";
+            case "dance": return "House";
+            case "chillout": return "Downtempo";
+            case "jazz": return "Jazz";
+            case "blues": return "Blues";
+            case "folk": return "Folk";
+            case "metal": return "Metal";
+            case "punk": return "Punk";
+            case "reggae": return "Reggae";
+            case "lounge": return "Lo-Fi";
+            case "ambient": return "Ambient";
+            case "classical": return "Classical";
+            case "soundtrack": return "Soundtrack";
+            default: return "";
+        }
+    }
+
+    /** Лише треки, для яких автор сам дозволив завантаження (без умов і оплати). */
+    static boolean audiusFree(JSONObject o) {
+        boolean dl = o.optBoolean("is_downloadable", false);
+        JSONObject access = o.optJSONObject("access");
+        if (access != null && !access.optBoolean("download", dl)) return false;
+        if (o.has("download_conditions") && !o.isNull("download_conditions")) return false;
+        if (o.has("stream_conditions") && !o.isNull("stream_conditions")) return false;
+        return dl;
+    }
+
+    public static List<Track> audius(String genreTag, boolean newest, int needed) throws Exception {
+        String genre = audiusGenre(genreTag);
+        List<Track> out = new ArrayList<>();
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        String[] urls = {
+                AUDIUS + "/tracks/search?" + APP + "&only_downloadable=true&limit=100"
+                        + "&query=" + enc(genre.isEmpty() ? "music" : genre)
+                        + (genre.isEmpty() ? "" : "&genre=" + enc(genre))
+                        + "&sort_method=" + (newest ? "recent" : "popular"),
+                AUDIUS + "/tracks/trending?" + APP + "&time=" + (newest ? "week" : "month")
+                        + (genre.isEmpty() ? "" : "&genre=" + enc(genre))
+        };
+        Exception last = null;
+        for (String url : urls) {
+            if (out.size() >= needed) break;
+            try {
+                JSONObject root = new JSONObject(httpGet(url));
+                JSONArray arr = root.optJSONArray("data");
+                if (arr == null) continue;
+                for (int i = 0; i < arr.length() && out.size() < needed; i++) {
+                    JSONObject o = arr.optJSONObject(i);
+                    if (o == null || !audiusFree(o)) continue;
+                    String id = o.optString("id", "");
+                    if (id.isEmpty() || !ids.add(id)) continue;
+                    Track t = new Track();
+                    t.title = o.optString("title", "Без назви");
+                    JSONObject u = o.optJSONObject("user");
+                    t.artist = u != null ? u.optString("name", "Невідомий виконавець") : "Невідомий виконавець";
+                    t.downloadUrl = AUDIUS + "/tracks/" + enc(id) + "/stream?" + APP;
+                    t.streamUrl = t.downloadUrl;
+                    t.license = "Audius: завантаження дозволене автором (лише для особистого прослуховування)";
+                    t.pageUrl = "https://audius.co" + o.optString("permalink", "");
+                    t.source = "Audius";
+                    out.add(t);
+                }
+            } catch (Exception e) {
+                last = e;
+            }
+        }
+        if (out.isEmpty() && last != null) throw last;
+        return out;
+    }
+
+    // ---------------------------------------------------------------- ccMixter
+
+    public static List<Track> ccMixter(String genreTag, boolean instrumental, boolean newest, int needed) throws Exception {
+        String tag = "hiphop".equals(genreTag) ? "hip_hop" : genreTag;
+        StringBuilder tags = new StringBuilder();
+        if (!tag.isEmpty()) tags.append(tag);
+        if (instrumental) tags.append(tags.length() > 0 ? "+" : "").append("instrumental");
+        String url = "https://ccmixter.org/api/query?f=json&limit=" + Math.min(needed * 2, 200)
+                + "&sort=" + (newest ? "date" : "rank") + "&ord=desc"
+                + (tags.length() > 0 ? "&tags=" + tags : "");
+        JSONArray arr = new JSONArray(httpGet(url));
+        List<Track> out = new ArrayList<>();
+        for (int i = 0; i < arr.length() && out.size() < needed; i++) {
+            JSONObject o = arr.optJSONObject(i);
+            if (o == null) continue;
+            JSONArray files = o.optJSONArray("files");
+            if (files == null) continue;
+            String dl = "";
+            for (int k = 0; k < files.length(); k++) {
+                JSONObject f = files.optJSONObject(k);
+                if (f == null) continue;
+                String u = f.optString("download_url", "");
+                if (u.toLowerCase(Locale.ROOT).endsWith(".mp3")) { dl = u; break; }
+            }
+            if (dl.isEmpty()) continue;
+            Track t = new Track();
+            t.title = o.optString("upload_name", "Без назви");
+            String an = o.optString("user_real_name", "");
+            t.artist = an.isEmpty() ? o.optString("user_name", "Невідомий виконавець") : an;
+            t.downloadUrl = dl;
+            t.streamUrl = dl;
+            t.license = o.optString("license_url", "Creative Commons");
+            t.pageUrl = o.optString("file_page_url", "");
+            t.source = "ccMixter";
+            out.add(t);
+        }
+        return out;
+    }
+
+    // ---------------------------------------------------------------- Openverse
+
+    public static List<Track> openverse(String genreTag, int needed) throws Exception {
+        String q = genreTag.isEmpty() ? "music" : ("hiphop".equals(genreTag) ? "hip hop" : genreTag);
+        List<Track> out = new ArrayList<>();
+        Exception last = null;
+        for (int page = 1; page <= 4 && out.size() < needed; page++) {
+            try {
+                String url = "https://api.openverse.org/v1/audio/?q=" + enc(q)
+                        + "&category=music&page_size=20&page=" + page;
+                JSONObject root = new JSONObject(httpGet(url));
+                JSONArray arr = root.optJSONArray("results");
+                if (arr == null || arr.length() == 0) break;
+                for (int i = 0; i < arr.length() && out.size() < needed; i++) {
+                    JSONObject o = arr.optJSONObject(i);
+                    if (o == null) continue;
+                    String u = o.optString("url", "");
+                    String ft = o.optString("filetype", "").toLowerCase(Locale.ROOT);
+                    boolean mp3 = ft.startsWith("mp3") || u.toLowerCase(Locale.ROOT).contains(".mp3") || u.contains("format=mp3");
+                    if (u.isEmpty() || !mp3) continue;
+                    Track t = new Track();
+                    t.title = o.optString("title", "Без назви");
+                    t.artist = o.optString("creator", "Невідомий виконавець");
+                    t.downloadUrl = u;
+                    t.streamUrl = u;
+                    String lic = o.optString("license", "").toUpperCase(Locale.ROOT);
+                    t.license = "CC " + lic + " " + o.optString("license_version", "") + " " + o.optString("license_url", "");
+                    t.pageUrl = o.optString("foreign_landing_url", "");
+                    t.source = "Openverse/" + o.optString("source", "");
+                    out.add(t);
+                }
+            } catch (Exception e) {
+                last = e;
+                break;
+            }
+        }
+        if (out.isEmpty() && last != null) throw last;
+        return out;
+    }
+
     static String firstString(Object o) {
         if (o instanceof JSONArray) {
             JSONArray a = (JSONArray) o;
